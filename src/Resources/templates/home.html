@@ -5,9 +5,29 @@
         <title>Web Forum Home</title>
         <link rel="stylesheet" type="text/css" href="style.css">
     </head>
+    <header>
+        <h1 align="center" background-color="black">My Ridiculously Bad Forum</h1>
+    </header>
     <body>
+        {{#username}}   <!-- if your logged in this displays, otherwise it won't -->
+             Hello, {{.}}!!<br>
+
+            <form action="/logout" method="post" style="display: inline-block;">
+                <button type="submit">Logout</button>
+            </form>
+        {{/username}}<br>
+
+        {{^username}} <!-- if username is null the Login box will be displayed -->
+            <form action="/login" method="post">
+                Hey Guy, You should Probably Login<br>
+                <input type="text" name="username" placeholder="Enter your name"/>
+                <button type="submit">Login</button><br>
+            </form>
+        {{/username}}<br>
+
+
         {{#messages}}
-            {{author}}: {{msgText}}<br>
+            <a href="/?replyId={{id}}">{{author}}: {{msgText}}</a><br>
         {{/messages}}
     </body>
 </html>

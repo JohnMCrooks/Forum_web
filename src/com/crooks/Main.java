@@ -1,6 +1,7 @@
 package com.crooks;
 
 import spark.ModelAndView;
+import spark.Session;
 import spark.Spark;
 import spark.template.mustache.MustacheTemplateEngine;
 
@@ -17,18 +18,20 @@ public class Main {
     public static void main(String[] args) {
         addTestMsg();
         addTestUsers();
-        staticFileLocation("src");
+        staticFileLocation("Resources");
 
         Spark.init();
         Spark.get(
                 "/",
                 (request, response) -> {
-                    String idStr = request.queryParams("replyId")  ;
+                    Session session = request.session();
+                    String username = session.attribute("username");
+
+                    String idStr = request.queryParams("replyId");
                     int replyId = -1;
                     if (idStr!= null){
                         replyId = Integer.valueOf(idStr);
                     }
-
 
                     ArrayList<Message> subset = new ArrayList<Message>();
                     for (Message msg: messageList){         //Filtering by reply id to only display top level posts
@@ -36,11 +39,49 @@ public class Main {
                             subset.add(msg);
                         }
                     }
+
                     HashMap m = new HashMap();
                     m.put("messages", subset);
+                    m.put("username", username);
+
                     return new ModelAndView(m, "home.html");
                 },
                 new MustacheTemplateEngine()
+
+        );
+
+        Spark.post(
+                "/login",
+                (request, response) -> {
+
+                    String username = request.queryParams("username");
+                    if (username==null){
+                        throw new Exception("Login Name Not Found");
+                    }
+
+                    User user = userHash.get(username);
+                    if (user==null){
+                        user = new User(username,"");
+                        userHash.put(username,user);
+                    }
+
+                    Session session = request.session();
+                    session.attribute("username", username);
+
+                    response.redirect(request.headers("Referer")); // instead of redirecting back to the "/" route every time, get the Referer which indicates the page the user is coming from which is what we want them to redirect back to
+                    return "";
+                }
+        );
+
+        Spark.post(
+                "/logout",
+                (request, response) -> {
+                    Session session = request.session();
+                    session.invalidate();
+
+                    response.redirect("/");
+                    return"";
+                }
 
         );
     }
