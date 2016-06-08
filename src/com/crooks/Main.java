@@ -1,7 +1,13 @@
 package com.crooks;
 
+import spark.ModelAndView;
+import spark.Spark;
+import spark.template.mustache.MustacheTemplateEngine;
+
 import java.util.ArrayList;
 import java.util.HashMap;
+
+import static spark.Spark.staticFileLocation;
 
 public class Main {
 
@@ -11,6 +17,32 @@ public class Main {
     public static void main(String[] args) {
         addTestMsg();
         addTestUsers();
+        staticFileLocation("src");
+
+        Spark.init();
+        Spark.get(
+                "/",
+                (request, response) -> {
+                    String idStr = request.queryParams("replyId")  ;
+                    int replyId = -1;
+                    if (idStr!= null){
+                        replyId = Integer.valueOf(idStr);
+                    }
+
+
+                    ArrayList<Message> subset = new ArrayList<Message>();
+                    for (Message msg: messageList){         //Filtering by reply id to only display top level posts
+                        if (msg.replyId== replyId){
+                            subset.add(msg);
+                        }
+                    }
+                    HashMap m = new HashMap();
+                    m.put("messages", subset);
+                    return new ModelAndView(m, "home.html");
+                },
+                new MustacheTemplateEngine()
+
+        );
     }
 
     static void addTestUsers(){
