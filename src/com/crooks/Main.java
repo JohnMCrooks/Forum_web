@@ -40,10 +40,17 @@ public class Main {
                         }
                     }
 
+                    Message parentMsg = null;
+                    if (replyId>=0){
+                        parentMsg = messageList.get(replyId);
+                    }
+
                     HashMap m = new HashMap();
                     m.put("messages", subset);
                     m.put("username", username);
                     m.put("replyId",replyId);
+                    m.put("message", parentMsg);
+                    m.put("isMe", parentMsg!=null && username!= null && parentMsg.author.equals(username));  //will only return true if al three conditions are true
 
                     return new ModelAndView(m, "home.html");
                 },
@@ -88,6 +95,29 @@ public class Main {
                     messageList.add(msg);
 
                     response.redirect(request.headers("Referer"));
+                    return "";
+                }
+        );
+
+        Spark.post(
+                "/delete-message",
+                (request, response) -> {
+                    Session session = request.session();
+                    String username = session.attribute("username");
+                    int id = Integer.valueOf(request.queryParams("id"));
+
+                    Message m = messageList.get(id);
+                    if(!m.author.equals(username)){
+                        throw new Exception("You can't delete this");
+                    }
+                    messageList.remove(id);
+
+                    int index = 0; //reset Ids after removing a comment
+                    for (Message msg: messageList){
+                        msg.id = index;
+                        index++;
+                    }
+                    response.redirect("/");
                     return "";
                 }
         );

@@ -32,8 +32,19 @@
         {{/username}}<br>
 
 
+        {{#message}}   <!-- Injecting the original message above the list of replies, If one exists-->
+            <h2>{{author}}: {{msgText}}</h2>
+            {{#isMe}} <!--Validation to make sure the delete button only shows for someone who actually posted it -->
+                <form action="/delete-message" method="post">
+                    <input type="hidden" name="id" value="{{id}}"/>
+                    <button type="submit">Delete</button>
+                </form>
+            {{/isMe}}
+        {{/message}}
+
         {{#messages}}
             <a href="/?replyId={{id}}">{{author}}: {{msgText}}</a><br>
         {{/messages}}
+
     </body>
 </html>
