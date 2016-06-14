@@ -1,10 +1,12 @@
 package com.crooks;
 
+import org.h2.tools.Server;
 import spark.ModelAndView;
 import spark.Session;
 import spark.Spark;
 import spark.template.mustache.MustacheTemplateEngine;
 
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 
@@ -12,12 +14,83 @@ import static spark.Spark.staticFileLocation;
 
 public class Main {
 
-    static HashMap<String, User> userHash = new HashMap<>();
-    static ArrayList<Message> messageList = new ArrayList<>();
+    public static void createTables(Connection conn) throws SQLException {
+        Statement stmt = conn.createStatement();
+        stmt.execute("CREATE TABLE IF NOT EXISTS users (id IDENTITY, name VARCHAR, password VARCHAR)");
+        stmt.execute("CREATE TABLE IF NOT EXISTS messages(id IDENTITY, reply_id INT, text VARCHAR, user_id INT)");
 
-    public static void main(String[] args) {
-        addTestMsg();
-        addTestUsers();
+    }
+
+    public static void insertUser(Connection conn, String name, String password) throws SQLException {
+        PreparedStatement stmt = conn.prepareStatement("INSERT INTO users VALUES (NULL,?,?)");
+        stmt.setString(1, name);
+        stmt.setString(2, password);
+        stmt.execute();
+
+    }
+
+    public static User selectUser(Connection conn, String name) throws SQLException {
+        PreparedStatement stmt = conn.prepareStatement("SELECT * FROM users WHERE name = ?");
+        stmt.setString(1, name);
+        ResultSet results = stmt.executeQuery();
+        if (results.next()) {
+            int id = results.getInt("id");
+            String password = results.getString("password");
+            return new User(id, name, password);
+        }
+        return null;
+    }
+
+    public static void insertMessage(Connection conn, int replyID, String text, int userID) throws SQLException {
+        PreparedStatement stmt  = conn.prepareStatement("INSERT INTO messages VALUES (NULL,?,?,?)");
+        stmt.setInt(1, replyID);
+        stmt.setString(2, text);
+        stmt.setInt(3, userID);
+        stmt.execute();
+
+    }
+
+    public static Message selectMessage(Connection conn, int id) throws SQLException {
+        PreparedStatement stmt = conn.prepareStatement("SELECT * FROM messages INNER JOIN users ON messages.user_id = users.id WHERE users.id = ?");
+        stmt.setInt(1,id);
+        ResultSet results = stmt.executeQuery();
+        if(results.next()){
+            int replyID = results.getInt("messages.reply_id");
+            String text = results.getString("messages.text");
+            String author = results.getString("users.name");
+            return new Message(id,replyID,author,text);
+        }
+
+        return null;
+    }
+
+    public static ArrayList<Message> selectReplies(Connection conn, int replyID) throws SQLException {
+        PreparedStatement stmt = conn.prepareStatement("SELECT * FROM messages INNER JOIN users ON messages.user_id = users.id WHERE messages.reply_id = ?");
+        stmt.setInt(1, replyID);
+        ResultSet results = stmt.executeQuery();
+        ArrayList<Message> msgs = new ArrayList<>();
+        while(results.next()){
+            int id = results.getInt("id");
+            String text = results.getString("messages.text");
+            String author = results.getString("users.name");
+            Message m1 = new Message(id,replyID,author,text);
+            msgs.add(m1);
+        }
+        return msgs;
+    }
+
+    public static void deleteMessage(Connection conn, int id) throws SQLException {
+        PreparedStatement stmt = conn.prepareStatement("DELETE FROM messages WHERE id = ?");
+        stmt.setInt(1,id);
+        stmt.execute();
+    }
+
+    public static void main(String[] args) throws SQLException {
+
+        Server.createWebServer().start();
+        Connection conn = DriverManager.getConnection("jdbc:h2:./main");
+        createTables(conn);
+
         staticFileLocation("Resources");
 
         Spark.init();
@@ -29,28 +102,24 @@ public class Main {
 
                     String idStr = request.queryParams("replyId");
                     int replyId = -1;
-                    if (idStr!= null){
+                    if (idStr != null) {
                         replyId = Integer.valueOf(idStr);
                     }
 
-                    ArrayList<Message> subset = new ArrayList<Message>();
-                    for (Message msg: messageList){         //Filtering by reply id to only display top level posts
-                        if (msg.replyId== replyId){
-                            subset.add(msg);
-                        }
-                    }
+                    ArrayList<Message> subset = selectReplies(conn, replyId);
+
 
                     Message parentMsg = null;
-                    if (replyId>=0){
-                        parentMsg = messageList.get(replyId);
+                    if (replyId >= 0) {
+                        parentMsg = selectMessage(conn, replyId);
                     }
 
                     HashMap m = new HashMap();
                     m.put("messages", subset);
                     m.put("username", username);
-                    m.put("replyId",replyId);
+                    m.put("replyId", replyId);
                     m.put("message", parentMsg);
-                    m.put("isMe", parentMsg!=null && username!= null && parentMsg.author.equals(username));  //will only return true if al three conditions are true
+                    m.put("isMe", parentMsg != null && username != null && parentMsg.author.equals(username));  //will only return true if al three conditions are true
 
                     return new ModelAndView(m, "home.html");
                 },
@@ -63,14 +132,13 @@ public class Main {
                 (request, response) -> {
 
                     String username = request.queryParams("username");
-                    if (username==null){
+                    if (username == null) {
                         throw new Exception("Login Name Not Found");
                     }
 
-                    User user = userHash.get(username);
-                    if (user==null){
-                        user = new User(username,"");
-                        userHash.put(username,user);
+                    User user = selectUser(conn, username);
+                    if (user == null) {
+                        insertUser(conn, username, "");
                     }
 
                     Session session = request.session();
@@ -85,14 +153,15 @@ public class Main {
                 (request, response) -> {
                     Session session = request.session();
                     String username = session.attribute("username");
-                    if (username==null){
-                        throw new Exception ("Not Logged In");
+                    if (username == null) {
+                        throw new Exception("Not Logged In");
                     }
 
                     int replyId = Integer.valueOf(request.queryParams("replyId"));
                     String text = request.queryParams("message");
-                    Message msg = new Message(messageList.size(),replyId,username,text);
-                    messageList.add(msg);
+
+                    User user = selectUser(conn,username);
+                    insertMessage(conn,replyId,text,user.id);
 
                     response.redirect(request.headers("Referer"));
                     return "";
@@ -106,17 +175,13 @@ public class Main {
                     String username = session.attribute("username");
                     int id = Integer.valueOf(request.queryParams("id"));
 
-                    Message m = messageList.get(id);
-                    if(!m.author.equals(username)){
+                    Message m = selectMessage(conn, id);
+                    if (!m.author.equals(username)) {
                         throw new Exception("You can't delete this");
                     }
-                    messageList.remove(id);
 
-                    int index = 0; //reset Ids after removing a comment
-                    for (Message msg: messageList){
-                        msg.id = index;
-                        index++;
-                    }
+                    //messageList.remove(id);
+                    deleteMessage(conn, id);
                     response.redirect("/");
                     return "";
                 }
@@ -129,21 +194,11 @@ public class Main {
                     session.invalidate();
 
                     response.redirect("/");
-                    return"";
+                    return "";
                 }
         );
     }
-
-    static void addTestUsers(){
-        userHash.put("Alice", new User("Alice", ""));
-        userHash.put("Bob", new User("Bob", ""));
-        userHash.put("Charlie", new User("Charlie", ""));
-
-    }
-
-    static void addTestMsg(){
-        messageList.add(new Message(0,-1,"Alice","Hello World!"));
-        messageList.add(new Message(1,-1,"Bob","This is a new thread"));
-        messageList.add(new Message(2,0,"Charlie", "Cool Thread, Alice."));
-    }
 }
+
+
+
